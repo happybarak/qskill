@@ -1,0 +1,226 @@
+"""
+Matrix Operations Tool
+=======================
+An interactive command-line application for performing common matrix
+operations using NumPy: addition, subtraction, multiplication, transpose,
+and determinant calculation.
+
+Run with:  python matrix_operations_tool.py
+"""
+
+import numpy as np
+
+
+# --------------------------------------------------------------------------
+# Input helpers
+# --------------------------------------------------------------------------
+
+def get_dimensions(matrix_name: str) -> tuple[int, int]:
+    """Prompt the user for the number of rows and columns of a matrix."""
+    while True:
+        try:
+            rows = int(input(f"Enter number of rows for {matrix_name}: "))
+            cols = int(input(f"Enter number of columns for {matrix_name}: "))
+            if rows <= 0 or cols <= 0:
+                print("Rows and columns must be positive integers. Try again.\n")
+                continue
+            return rows, cols
+        except ValueError:
+            print("Invalid input. Please enter integers only.\n")
+
+
+def get_matrix(matrix_name: str, rows: int, cols: int) -> np.ndarray:
+    """Prompt the user to enter matrix values row by row."""
+    print(f"\nEnter the elements of {matrix_name} ({rows}x{cols}), "
+          f"row by row, values separated by spaces:")
+    data = []
+    for r in range(rows):
+        while True:
+            row_input = input(f"  Row {r + 1}: ").strip().split()
+            if len(row_input) != cols:
+                print(f"  Expected {cols} value(s). Got {len(row_input)}. Try again.")
+                continue
+            try:
+                row_values = [float(v) for v in row_input]
+                data.append(row_values)
+                break
+            except ValueError:
+                print("  Invalid number(s) detected. Please enter numeric values.")
+    return np.array(data)
+
+
+def print_matrix(label: str, matrix: np.ndarray) -> None:
+    """Display a matrix in a clean, structured format."""
+    print(f"\n{label}:")
+    if matrix.ndim == 0:
+        print(f"  {matrix}")
+        return
+    for row in np.atleast_2d(matrix):
+        formatted_row = "  ".join(f"{val:8.3f}" for val in row)
+        print(f"  [ {formatted_row} ]")
+
+
+def divider(char: str = "-", length: int = 50) -> None:
+    print(char * length)
+
+
+# --------------------------------------------------------------------------
+# Matrix operations
+# --------------------------------------------------------------------------
+
+def op_addition(a: np.ndarray, b: np.ndarray) -> None:
+    if a.shape != b.shape:
+        print("\nError: Matrices must have the same dimensions for addition.")
+        return
+    print_matrix("Result of A + B", a + b)
+
+
+def op_subtraction(a: np.ndarray, b: np.ndarray) -> None:
+    if a.shape != b.shape:
+        print("\nError: Matrices must have the same dimensions for subtraction.")
+        return
+    print_matrix("Result of A - B", a - b)
+
+
+def op_multiplication(a: np.ndarray, b: np.ndarray) -> None:
+    if a.shape[1] != b.shape[0]:
+        print(
+            "\nError: Number of columns in A must equal number of rows in B "
+            f"for multiplication. A is {a.shape}, B is {b.shape}."
+        )
+        return
+    print_matrix("Result of A x B", a @ b)
+
+
+def op_transpose(matrix: np.ndarray, label: str) -> None:
+    print_matrix(f"Transpose of {label}", matrix.T)
+
+
+def op_determinant(matrix: np.ndarray, label: str) -> None:
+    if matrix.shape[0] != matrix.shape[1]:
+        print(f"\nError: Determinant requires a square matrix. "
+              f"{label} is {matrix.shape[0]}x{matrix.shape[1]}.")
+        return
+    det = np.linalg.det(matrix)
+    print(f"\nDeterminant of {label}: {det:.4f}")
+
+
+# --------------------------------------------------------------------------
+# Menu system
+# --------------------------------------------------------------------------
+
+MENU = """
+========== MATRIX OPERATIONS TOOL ==========
+1. Enter/Update Matrix A
+2. Enter/Update Matrix B
+3. Add (A + B)
+4. Subtract (A - B)
+5. Multiply (A x B)
+6. Transpose Matrix A
+7. Transpose Matrix B
+8. Determinant of Matrix A
+9. Determinant of Matrix B
+10. Display Current Matrices
+0. Exit
+=============================================
+"""
+
+
+def main() -> None:
+    matrix_a = None
+    matrix_b = None
+
+    print("Welcome to the Matrix Operations Tool (Python + NumPy)")
+
+    while True:
+        print(MENU)
+        choice = input("Select an option: ").strip()
+
+        if choice == "1":
+            rows, cols = get_dimensions("Matrix A")
+            matrix_a = get_matrix("Matrix A", rows, cols)
+            print_matrix("Matrix A", matrix_a)
+
+        elif choice == "2":
+            rows, cols = get_dimensions("Matrix B")
+            matrix_b = get_matrix("Matrix B", rows, cols)
+            print_matrix("Matrix B", matrix_b)
+
+        elif choice == "3":
+            if matrix_a is None or matrix_b is None:
+                print("\nBoth Matrix A and Matrix B must be entered first (options 1 & 2).")
+            else:
+                divider()
+                op_addition(matrix_a, matrix_b)
+                divider()
+
+        elif choice == "4":
+            if matrix_a is None or matrix_b is None:
+                print("\nBoth Matrix A and Matrix B must be entered first (options 1 & 2).")
+            else:
+                divider()
+                op_subtraction(matrix_a, matrix_b)
+                divider()
+
+        elif choice == "5":
+            if matrix_a is None or matrix_b is None:
+                print("\nBoth Matrix A and Matrix B must be entered first (options 1 & 2).")
+            else:
+                divider()
+                op_multiplication(matrix_a, matrix_b)
+                divider()
+
+        elif choice == "6":
+            if matrix_a is None:
+                print("\nMatrix A must be entered first (option 1).")
+            else:
+                divider()
+                op_transpose(matrix_a, "Matrix A")
+                divider()
+
+        elif choice == "7":
+            if matrix_b is None:
+                print("\nMatrix B must be entered first (option 2).")
+            else:
+                divider()
+                op_transpose(matrix_b, "Matrix B")
+                divider()
+
+        elif choice == "8":
+            if matrix_a is None:
+                print("\nMatrix A must be entered first (option 1).")
+            else:
+                divider()
+                op_determinant(matrix_a, "Matrix A")
+                divider()
+
+        elif choice == "9":
+            if matrix_b is None:
+                print("\nMatrix B must be entered first (option 2).")
+            else:
+                divider()
+                op_determinant(matrix_b, "Matrix B")
+                divider()
+
+        elif choice == "10":
+            divider()
+            if matrix_a is not None:
+                print_matrix("Matrix A", matrix_a)
+            else:
+                print("\nMatrix A: not set")
+            if matrix_b is not None:
+                print_matrix("Matrix B", matrix_b)
+            else:
+                print("\nMatrix B: not set")
+            divider()
+
+        elif choice == "0":
+            print("\nExiting Matrix Operations Tool. Goodbye!")
+            break
+
+        else:
+            print("\nInvalid choice. Please select a valid option from the menu.")
+
+
+if __name__ == "__main__":
+    main()
