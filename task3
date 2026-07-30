@@ -1,0 +1,297 @@
+"""
+House Price Prediction — Linear Regression
+============================================
+Trains a linear regression model to predict house price from features
+such as number of rooms, location, size, and other relevant factors.
+
+DATASET
+-------
+This script is built to work with common Kaggle house-price datasets,
+e.g.:
+  - "USA Housing" (https://www.kaggle.com/datasets/vedavyasv/usa-housing)
+  - "House Price Prediction Dataset"
+    (https://www.kaggle.com/datasets/shree1992/housedata)
+  - Any similar CSV with a numeric price/target column plus features
+    like rooms/bedrooms/bathrooms, size/area, and location.
+
+Download a dataset from Kaggle and place the CSV next to this script,
+then run:
+    python house_price_regression.py path/to/dataset.csv --target "Price"
+
+If no CSV is supplied, the script generates a realistic synthetic
+housing dataset so you can see the full pipeline run end-to-end.
+
+WHAT IT DOES
+------------
+1. Loads and inspects the data
+2. Cleans it (missing values, duplicate rows)
+3. Encodes categorical features (e.g. location) and scales numeric ones
+4. Splits into train/test sets
+5. Trains a Linear Regression model
+6. Evaluates with R^2, MAE, RMSE
+7. Plots predicted vs. actual prices and feature importance (coefficients)
+8. Lets you predict the price of a new, custom house
+"""
+
+import argparse
+import sys
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+
+
+# --------------------------------------------------------------------------
+# 1. Data loading
+# --------------------------------------------------------------------------
+
+def create_synthetic_dataset(n: int = 1000, seed: int = 42) -> pd.DataFrame:
+    """Generate a realistic synthetic housing dataset (used if no CSV given)."""
+    rng = np.random.default_rng(seed)
+
+    locations = ["Downtown", "Suburb", "Rural", "Waterfront", "Uptown"]
+    location_premium = {"Downtown": 1.35, "Suburb": 1.0, "Rural": 0.75,
+                         "Waterfront": 1.6, "Uptown": 1.2}
+
+    location = rng.choice(locations, size=n)
+    size_sqft = rng.normal(1800, 600, size=n).clip(400, 6000)
+    rooms = rng.integers(1, 7, size=n)
+    bathrooms = rng.integers(1, 5, size=n)
+    age_years = rng.integers(0, 80, size=n)
+    garage = rng.integers(0, 3, size=n)
+
+    base_price = (
+        50_000
+        + size_sqft * 120
+        + rooms * 8_000
+        + bathrooms * 6_000
+        + garage * 4_000
+        - age_years * 500
+    )
+    premium = np.array([location_premium[loc] for loc in location])
+    noise = rng.normal(0, 15_000, size=n)
+    price = (base_price * premium + noise).clip(30_000, None)
+
+    df = pd.DataFrame({
+        "Location": location,
+        "SizeSqft": size_sqft.round(0),
+        "Rooms": rooms,
+        "Bathrooms": bathrooms,
+        "AgeYears": age_years,
+        "Garage": garage,
+        "Price": price.round(0),
+    })
+    print("No CSV path supplied — using a generated synthetic housing dataset.\n")
+    return df
+
+
+def load_dataset(csv_path: str) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+    print(f"Loaded '{csv_path}' -> {df.shape[0]} rows, {df.shape[1]} columns\n")
+    return df
+
+
+# --------------------------------------------------------------------------
+# 2. Preprocessing
+# --------------------------------------------------------------------------
+
+def preprocess(df: pd.DataFrame, target: str):
+    """Clean the dataframe and split into features (X) and target (y)."""
+    df = df.copy()
+
+    # Drop obvious ID-like columns that shouldn't be used as features
+    id_like = [c for c in df.columns if c.lower() in ("id", "index", "unnamed: 0")]
+    df.drop(columns=id_like, inplace=True, errors="ignore")
+
+    # Drop duplicate rows
+    before = len(df)
+    df.drop_duplicates(inplace=True)
+    if len(df) < before:
+        print(f"Removed {before - len(df)} duplicate row(s).")
+
+    if target not in df.columns:
+        raise ValueError(
+            f"Target column '{target}' not found. Available columns: "
+            f"{list(df.columns)}"
+        )
+
+    # Drop rows where the target itself is missing
+    df.dropna(subset=[target], inplace=True)
+
+    y = df[target]
+    X = df.drop(columns=[target])
+
+    numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_cols = X.select_dtypes(exclude=[np.number]).columns.tolist()
+
+    print(f"Numeric features: {numeric_cols}")
+    print(f"Categorical features: {categorical_cols}\n")
+
+    return X, y, numeric_cols, categorical_cols
+
+
+def build_pipeline(numeric_cols, categorical_cols) -> Pipeline:
+    """Build a preprocessing + Linear Regression pipeline.
+
+    Numeric features are median-imputed and standardized.
+    Categorical features are most-frequent-imputed and one-hot encoded.
+    """
+    from sklearn.impute import SimpleImputer
+
+    numeric_transformer = Pipeline(steps=[
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler", StandardScaler()),
+    ])
+
+    categorical_transformer = Pipeline(steps=[
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+        ("onehot", OneHotEncoder(handle_unknown="ignore")),
+    ])
+
+    preprocessor = ColumnTransformer(transformers=[
+        ("num", numeric_transformer, numeric_cols),
+        ("cat", categorical_transformer, categorical_cols),
+    ])
+
+    model = Pipeline(steps=[
+        ("preprocessor", preprocessor),
+        ("regressor", LinearRegression()),
+    ])
+    return model
+
+
+# --------------------------------------------------------------------------
+# 3. Training & evaluation
+# --------------------------------------------------------------------------
+
+def train_and_evaluate(X, y, numeric_cols, categorical_cols):
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
+    model = build_pipeline(numeric_cols, categorical_cols)
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+
+    r2 = r2_score(y_test, y_pred)
+    mae = mean_absolute_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+    print("=" * 55)
+    print("MODEL PERFORMANCE (on held-out test set)")
+    print("=" * 55)
+    print(f"R^2 score : {r2:.4f}  (closer to 1.0 is better)")
+    print(f"MAE       : {mae:,.2f}")
+    print(f"RMSE      : {rmse:,.2f}")
+    print()
+
+    return model, X_test, y_test, y_pred
+
+
+# --------------------------------------------------------------------------
+# 4. Visualizations
+# --------------------------------------------------------------------------
+
+def plot_predicted_vs_actual(y_test, y_pred, save_path="predicted_vs_actual.png"):
+    plt.figure(figsize=(7, 6))
+    plt.scatter(y_test, y_pred, alpha=0.5, color="#4C72B0", edgecolor="black")
+    lims = [min(y_test.min(), y_pred.min()), max(y_test.max(), y_pred.max())]
+    plt.plot(lims, lims, "r--", label="Perfect prediction")
+    plt.xlabel("Actual Price")
+    plt.ylabel("Predicted Price")
+    plt.title("Predicted vs. Actual House Price")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Saved plot -> {save_path}")
+
+
+def plot_feature_importance(model, numeric_cols, categorical_cols,
+                             save_path="feature_importance.png"):
+    """Plot the linear regression coefficients (standardized numeric
+    features make these directly comparable in magnitude)."""
+    ohe = model.named_steps["preprocessor"].named_transformers_["cat"].named_steps["onehot"]
+    cat_feature_names = list(ohe.get_feature_names_out(categorical_cols)) if categorical_cols else []
+    feature_names = numeric_cols + cat_feature_names
+    coefs = model.named_steps["regressor"].coef_
+
+    order = np.argsort(np.abs(coefs))[::-1]
+    feature_names = np.array(feature_names)[order]
+    coefs = coefs[order]
+
+    plt.figure(figsize=(8, max(4, 0.35 * len(feature_names))))
+    colors = ["#DD8452" if c < 0 else "#4C72B0" for c in coefs]
+    plt.barh(feature_names, coefs, color=colors, edgecolor="black")
+    plt.axvline(0, color="black", linewidth=0.8)
+    plt.xlabel("Coefficient value (impact on predicted price)")
+    plt.title("Feature Importance (Linear Regression Coefficients)")
+    plt.gca().invert_yaxis()
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Saved plot -> {save_path}")
+
+
+# --------------------------------------------------------------------------
+# 5. Predicting on a new house
+# --------------------------------------------------------------------------
+
+def predict_example(model, X):
+    """Show a sample prediction using the first row of the feature set,
+    as a demonstration of how to score a brand-new house."""
+    sample = X.iloc[[0]]
+    predicted_price = model.predict(sample)[0]
+    print("\nExample prediction on a sample house:")
+    print(sample.to_string(index=False))
+    print(f"Predicted price: {predicted_price:,.2f}")
+
+
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(description="House price linear regression")
+    parser.add_argument("csv_path", nargs="?", default=None,
+                         help="Path to a Kaggle house-price CSV file")
+    parser.add_argument("--target", default="Price",
+                         help="Name of the target/price column (default: 'Price')")
+    args = parser.parse_args()
+
+    # 1. Load data
+    if args.csv_path:
+        df = load_dataset(args.csv_path)
+    else:
+        df = create_synthetic_dataset()
+
+    # 2. Preprocess
+    target_col = args.target if args.target in df.columns else (
+        "Price" if "Price" in df.columns else df.columns[-1]
+    )
+    if target_col != args.target:
+        print(f"Note: target '{args.target}' not found; using '{target_col}' instead.\n")
+
+    X, y, numeric_cols, categorical_cols = preprocess(df, target_col)
+
+    # 3. Train & evaluate
+    model, X_test, y_test, y_pred = train_and_evaluate(X, y, numeric_cols, categorical_cols)
+
+    # 4. Visualize
+    plot_predicted_vs_actual(y_test, y_pred)
+    plot_feature_importance(model, numeric_cols, categorical_cols)
+
+    # 5. Example prediction
+    predict_example(model, X)
+
+
+if __name__ == "__main__":
+    main()
