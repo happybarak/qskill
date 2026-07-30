@@ -1,0 +1,277 @@
+"""
+CSV Data Analysis Tool
+=======================
+Loads a CSV file with Pandas, performs basic data analysis (summary
+statistics, averages of selected columns), and creates visualizations
+with Matplotlib: bar charts, scatter plots, and a correlation heatmap.
+
+Usage:
+    python csv_data_analysis_tool.py path/to/your_file.csv
+
+If no path is given, the script generates a small sample dataset
+(sales data) so you can see the tool in action.
+"""
+
+import sys
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+# --------------------------------------------------------------------------
+# Data loading
+# --------------------------------------------------------------------------
+
+def load_data(csv_path: str) -> pd.DataFrame:
+    """Load a CSV file into a Pandas DataFrame."""
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+    df = pd.read_csv(csv_path)
+    print(f"Loaded '{csv_path}' -> {df.shape[0]} rows, {df.shape[1]} columns\n")
+    return df
+
+
+def create_sample_data() -> pd.DataFrame:
+    """Create a small synthetic sales dataset for demonstration purposes."""
+    np.random.seed(42)
+    regions = np.random.choice(["North", "South", "East", "West"], size=100)
+    products = np.random.choice(["A", "B", "C"], size=100)
+    units_sold = np.random.randint(10, 200, size=100)
+    price = np.round(np.random.uniform(5, 50, size=100), 2)
+    revenue = np.round(units_sold * price, 2)
+    marketing_spend = np.round(np.random.uniform(50, 500, size=100), 2)
+
+    df = pd.DataFrame({
+        "Region": regions,
+        "Product": products,
+        "UnitsSold": units_sold,
+        "Price": price,
+        "Revenue": revenue,
+        "MarketingSpend": marketing_spend,
+    })
+    print("No CSV path supplied — using a generated sample sales dataset.\n")
+    return df
+
+
+# --------------------------------------------------------------------------
+# Basic analysis
+# --------------------------------------------------------------------------
+
+def basic_overview(df: pd.DataFrame) -> None:
+    print("=" * 60)
+    print("DATA OVERVIEW")
+    print("=" * 60)
+    print("\nColumn data types:")
+    print(df.dtypes)
+    print("\nMissing values per column:")
+    print(df.isnull().sum())
+    print("\nSummary statistics (numeric columns):")
+    print(df.describe())
+    print()
+
+
+def column_average(df: pd.DataFrame, column: str) -> float | None:
+    if column not in df.columns:
+        print(f"Column '{column}' not found in dataset.")
+        return None
+    if not pd.api.types.is_numeric_dtype(df[column]):
+        print(f"Column '{column}' is not numeric; cannot compute an average.")
+        return None
+    avg = df[column].mean()
+    print(f"Average of '{column}': {avg:.2f}")
+    return avg
+
+
+def group_summary(df: pd.DataFrame, group_col: str, value_col: str) -> pd.Series | None:
+    """Return the mean of value_col grouped by group_col, if both are valid."""
+    if group_col not in df.columns or value_col not in df.columns:
+        print(f"One or both columns not found: '{group_col}', '{value_col}'")
+        return None
+    if not pd.api.types.is_numeric_dtype(df[value_col]):
+        print(f"'{value_col}' is not numeric; cannot summarize by group.")
+        return None
+    summary = df.groupby(group_col)[value_col].mean().sort_values(ascending=False)
+    print(f"\nAverage '{value_col}' by '{group_col}':")
+    print(summary)
+    return summary
+
+
+# --------------------------------------------------------------------------
+# Visualizations
+# --------------------------------------------------------------------------
+
+def plot_bar_chart(df: pd.DataFrame, category_col: str, value_col: str,
+                    save_path: str = "bar_chart.png") -> None:
+    """Bar chart of the average value_col for each category in category_col."""
+    if category_col not in df.columns or value_col not in df.columns:
+        print(f"Skipping bar chart — missing column(s): {category_col}, {value_col}")
+        return
+
+    grouped = df.groupby(category_col)[value_col].mean().sort_values(ascending=False)
+
+    plt.figure(figsize=(8, 5))
+    grouped.plot(kind="bar", color="#4C72B0", edgecolor="black")
+    plt.title(f"Average {value_col} by {category_col}")
+    plt.xlabel(category_col)
+    plt.ylabel(f"Average {value_col}")
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Saved bar chart -> {save_path}")
+
+
+def plot_scatter(df: pd.DataFrame, x_col: str, y_col: str,
+                  save_path: str = "scatter_plot.png") -> None:
+    """Scatter plot showing the relationship between two numeric columns."""
+    if x_col not in df.columns or y_col not in df.columns:
+        print(f"Skipping scatter plot — missing column(s): {x_col}, {y_col}")
+        return
+    if not (pd.api.types.is_numeric_dtype(df[x_col]) and pd.api.types.is_numeric_dtype(df[y_col])):
+        print(f"Skipping scatter plot — '{x_col}' and '{y_col}' must both be numeric.")
+        return
+
+    plt.figure(figsize=(8, 5))
+    plt.scatter(df[x_col], df[y_col], alpha=0.6, color="#DD8452", edgecolor="black")
+    plt.title(f"{y_col} vs. {x_col}")
+    plt.xlabel(x_col)
+    plt.ylabel(y_col)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Saved scatter plot -> {save_path}")
+
+    corr = df[x_col].corr(df[y_col])
+    print(f"Correlation between '{x_col}' and '{y_col}': {corr:.3f}")
+
+
+def plot_heatmap(df: pd.DataFrame, save_path: str = "correlation_heatmap.png") -> None:
+    """Heatmap of the correlation matrix for all numeric columns."""
+    numeric_df = df.select_dtypes(include=[np.number])
+    if numeric_df.shape[1] < 2:
+        print("Skipping heatmap — need at least two numeric columns.")
+        return
+
+    corr_matrix = numeric_df.corr()
+
+    plt.figure(figsize=(7, 6))
+    im = plt.imshow(corr_matrix, cmap="coolwarm", vmin=-1, vmax=1)
+    plt.colorbar(im, label="Correlation coefficient")
+    plt.xticks(range(len(corr_matrix.columns)), corr_matrix.columns, rotation=45, ha="right")
+    plt.yticks(range(len(corr_matrix.columns)), corr_matrix.columns)
+
+    # Annotate each cell with its correlation value
+    for i in range(len(corr_matrix.columns)):
+        for j in range(len(corr_matrix.columns)):
+            plt.text(j, i, f"{corr_matrix.iloc[i, j]:.2f}",
+                      ha="center", va="center",
+                      color="black", fontsize=8)
+
+    plt.title("Correlation Heatmap (Numeric Columns)")
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"Saved correlation heatmap -> {save_path}")
+
+
+# --------------------------------------------------------------------------
+# Insights
+# --------------------------------------------------------------------------
+
+def print_insights(df: pd.DataFrame, category_col: str, value_col: str,
+                    x_col: str, y_col: str) -> None:
+    print("\n" + "=" * 60)
+    print("INSIGHTS & OBSERVATIONS")
+    print("=" * 60)
+
+    numeric_df = df.select_dtypes(include=[np.number])
+
+    if value_col in df.columns and category_col in df.columns:
+        grouped = df.groupby(category_col)[value_col].mean().sort_values(ascending=False)
+        if not grouped.empty:
+            top = grouped.index[0]
+            bottom = grouped.index[-1]
+            print(f"- '{top}' has the highest average {value_col} "
+                  f"({grouped.iloc[0]:.2f}); '{bottom}' has the lowest "
+                  f"({grouped.iloc[-1]:.2f}).")
+
+    if x_col in numeric_df.columns and y_col in numeric_df.columns:
+        corr = df[x_col].corr(df[y_col])
+        if abs(corr) > 0.7:
+            strength = "strong"
+        elif abs(corr) > 0.3:
+            strength = "moderate"
+        else:
+            strength = "weak"
+        direction = "positive" if corr > 0 else "negative"
+        print(f"- There is a {strength} {direction} correlation "
+              f"({corr:.2f}) between '{x_col}' and '{y_col}'.")
+
+    if numeric_df.shape[1] >= 2:
+        corr_matrix = numeric_df.corr().abs()
+        corr_array = np.array(corr_matrix.values, copy=True)
+        np.fill_diagonal(corr_array, 0)
+        corr_matrix = pd.DataFrame(corr_array, index=corr_matrix.index, columns=corr_matrix.columns)
+        max_pair = corr_matrix.stack().idxmax()
+        max_val = corr_matrix.stack().max()
+        print(f"- The strongest overall relationship among numeric columns is "
+              f"between '{max_pair[0]}' and '{max_pair[1]}' (|r| = {max_val:.2f}).")
+
+    missing = df.isnull().sum()
+    cols_with_missing = missing[missing > 0]
+    if not cols_with_missing.empty:
+        print(f"- Missing data detected in: {', '.join(cols_with_missing.index)}. "
+              f"Consider cleaning before further analysis.")
+    else:
+        print("- No missing values detected in the dataset.")
+
+    print()
+
+
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
+
+def main() -> None:
+    # 1. Load data (from command-line arg, or fall back to sample data)
+    if len(sys.argv) > 1:
+        df = load_data(sys.argv[1])
+    else:
+        df = create_sample_data()
+
+    # 2. Basic analysis
+    basic_overview(df)
+
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_cols = df.select_dtypes(exclude=[np.number]).columns.tolist()
+
+    # Pick sensible default columns for the demo; edit these to match
+    # your own dataset's column names.
+    category_col = categorical_cols[0] if categorical_cols else None
+    value_col = numeric_cols[0] if numeric_cols else None
+    x_col = numeric_cols[0] if len(numeric_cols) > 0 else None
+    y_col = numeric_cols[1] if len(numeric_cols) > 1 else None
+
+    if value_col:
+        column_average(df, value_col)
+    if category_col and value_col:
+        group_summary(df, category_col, value_col)
+
+    # 3. Visualizations
+    print("\n" + "=" * 60)
+    print("GENERATING VISUALIZATIONS")
+    print("=" * 60)
+    if category_col and value_col:
+        plot_bar_chart(df, category_col, value_col)
+    if x_col and y_col:
+        plot_scatter(df, x_col, y_col)
+    plot_heatmap(df)
+
+    # 4. Insights
+    if category_col and value_col and x_col and y_col:
+        print_insights(df, category_col, value_col, x_col, y_col)
+
+
+if __name__ == "__main__":
+    main()
